@@ -1,4 +1,5 @@
 #include "window_capture.h"
+#ifdef HAVE_WAYLAND
 
 #include "wlr-screencopy-unstable-v1-client-protocol.h"
 #include "hyprland-toplevel-export-v1-client-protocol.h"
@@ -614,3 +615,13 @@ GdkPixbuf* CaptureWaylandRegion(const WindowCaptureRegion& region, std::string* 
     if (!pixbuf) SetError(errorOut, failure);
     return pixbuf;
 }
+#else
+GdkPixbuf* CaptureWaylandRegion(const WindowCaptureRegion&, std::string* errorOut) {
+    if (errorOut) *errorOut = "Wayland capture not available in minimal X11/i3 build";
+    return nullptr;
+}
+GdkPixbuf* CaptureHyprlandToplevel(uint32_t, std::string* errorOut) {
+    if (errorOut) *errorOut = "Wayland capture not available in minimal X11/i3 build";
+    return nullptr;
+}
+#endif

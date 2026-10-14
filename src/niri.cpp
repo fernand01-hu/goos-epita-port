@@ -1,4 +1,5 @@
 #include "niri.h"
+#ifdef HAVE_WAYLAND
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -505,3 +506,12 @@ bool NiriBackend::SetSize(const std::string& id, int wpx, int hpx) {
                     ",\"change\":{\"SetFixed\":" + std::to_string(hpx) + "}}}") && ok;
     return ok;
 }
+#else
+bool NiriBackend::Init() { return false; }
+std::vector<BackendMonitor> NiriBackend::GetWindowMonitors() { return {}; }
+std::vector<BackendWindow> NiriBackend::GetWindowList() { return {}; }
+NiriBackend::WindowRect NiriBackend::FindWindow(const std::string&) { return {}; }
+bool NiriBackend::SetFloating(const std::string&, bool) { return false; }
+bool NiriBackend::MoveFloating(const std::string&, int, int) { return false; }
+bool NiriBackend::SetSize(const std::string&, int, int) { return false; }
+#endif

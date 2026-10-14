@@ -1,6 +1,7 @@
 .vscode/
 *.md
 !README.md
+!docs/*.md
 
 build/
 CMakeFiles/

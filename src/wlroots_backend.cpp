@@ -1,4 +1,5 @@
 #include "wlroots_backend.h"
+#ifdef HAVE_WAYLAND
 #include <wayland-client.h>
 #include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
 #include <iostream>
@@ -104,3 +105,10 @@ void WlrootsBackend::MoveCursorRel(int dx, int dy) {
     zwlr_virtual_pointer_v1_frame(m_impl->pointer);
     wl_display_flush(m_impl->display);
 }
+#else
+struct WlrootsImpl {};
+WlrootsBackend::~WlrootsBackend() = default;
+bool WlrootsBackend::Init() { return false; }
+void WlrootsBackend::MoveCursorAbs(int, int) {}
+void WlrootsBackend::MoveCursorRel(int, int) {}
+#endif

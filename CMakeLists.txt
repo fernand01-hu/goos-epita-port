@@ -8,57 +8,76 @@ set(CMAKE_CXX_STANDARD 17)
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 pkg_check_modules(GTK4 REQUIRED gtk4)
-pkg_check_modules(LS gtk4-layer-shell-0)
-if(LS_FOUND)
-    add_compile_definitions(HAVE_GTK4_LAYER_SHELL=1)
-    message(STATUS "gtk4-layer-shell found: Wayland layer-shell enabled")
-else()
-    message(STATUS "gtk4-layer-shell not found: native X11 overlay enabled")
+option(ENABLE_LAYER_SHELL "Enable gtk4-layer-shell for Wayland" ON)
+
+if(ENABLE_LAYER_SHELL)
+    pkg_check_modules(LS gtk4-layer-shell-0)
+    if(LS_FOUND)
+        add_compile_definitions(HAVE_GTK4_LAYER_SHELL=1)
+        message(STATUS "gtk4-layer-shell found: Wayland layer-shell enabled")
+    endif()
+endif()
+if(NOT LS_FOUND)
+    message(STATUS "gtk4-layer-shell disabled or not found: native X11 overlay enabled")
 endif()
 pkg_check_modules(SDL2 REQUIRED sdl2)
 pkg_check_modules(SDL2MIXER REQUIRED SDL2_mixer)
 pkg_check_modules(GDKPIXBUF REQUIRED gdk-pixbuf-2.0)
-pkg_check_modules(WAYLAND_CLIENT REQUIRED wayland-client)
 
-find_program(WAYLAND_SCANNER NAMES wayland-scanner)
+option(ENABLE_WAYLAND "Enable Wayland compositors support" ON)
 
-# Wayland code generation
-function(wayland_generate protocol_file out_header out_code)
-    get_filename_component(protocol_name ${protocol_file} NAME_WE)
-    add_custom_command(
-        OUTPUT ${out_header}
-        COMMAND ${WAYLAND_SCANNER} client-header ${protocol_file} ${out_header}
-        DEPENDS ${protocol_file}
+if(ENABLE_WAYLAND)
+    pkg_check_modules(WAYLAND_CLIENT wayland-client)
+    find_program(WAYLAND_SCANNER NAMES wayland-scanner)
+    if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER)
+        set(HAVE_WAYLAND_FOUND TRUE)
+    endif()
+endif()
+
+if(HAVE_WAYLAND_FOUND)
+    add_compile_definitions(HAVE_WAYLAND=1)
+    message(STATUS "Wayland support enabled")
+
+    # Wayland code generation
+    function(wayland_generate protocol_file out_header out_code)
+        get_filename_component(protocol_name ${protocol_file} NAME_WE)
+        add_custom_command(
+            OUTPUT ${out_header}
+            COMMAND ${WAYLAND_SCANNER} client-header ${protocol_file} ${out_header}
+            DEPENDS ${protocol_file}
+        )
+        add_custom_command(
+            OUTPUT ${out_code}
+            COMMAND ${WAYLAND_SCANNER} private-code ${protocol_file} ${out_code}
+            DEPENDS ${protocol_file}
+        )
+    endfunction()
+
+    set(VIRTUAL_POINTER_PROTOCOL "${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-virtual-pointer-unstable-v1.xml")
+    wayland_generate(${VIRTUAL_POINTER_PROTOCOL}
+        "${CMAKE_CURRENT_BINARY_DIR}/wlr-virtual-pointer-unstable-v1-client-protocol.h"
+        "${CMAKE_CURRENT_BINARY_DIR}/wlr-virtual-pointer-unstable-v1-protocol.c")
+    set(SCREENCOPY_PROTOCOL "${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-screencopy-unstable-v1.xml")
+    wayland_generate(${SCREENCOPY_PROTOCOL}
+        "${CMAKE_CURRENT_BINARY_DIR}/wlr-screencopy-unstable-v1-client-protocol.h"
+        "${CMAKE_CURRENT_BINARY_DIR}/wlr-screencopy-unstable-v1-protocol.c")
+    set(TOPLEVEL_EXPORT_PROTOCOL "${CMAKE_CURRENT_SOURCE_DIR}/protocols/hyprland-toplevel-export-v1.xml")
+    wayland_generate(${TOPLEVEL_EXPORT_PROTOCOL}
+        "${CMAKE_CURRENT_BINARY_DIR}/hyprland-toplevel-export-v1-client-protocol.h"
+        "${CMAKE_CURRENT_BINARY_DIR}/hyprland-toplevel-export-v1-protocol.c")
+
+    set(GENERATED_SOURCES
+        "${CMAKE_CURRENT_BINARY_DIR}/wlr-virtual-pointer-unstable-v1-protocol.c"
+        "${CMAKE_CURRENT_BINARY_DIR}/wlr-virtual-pointer-unstable-v1-client-protocol.h"
+        "${CMAKE_CURRENT_BINARY_DIR}/wlr-screencopy-unstable-v1-protocol.c"
+        "${CMAKE_CURRENT_BINARY_DIR}/wlr-screencopy-unstable-v1-client-protocol.h"
+        "${CMAKE_CURRENT_BINARY_DIR}/hyprland-toplevel-export-v1-protocol.c"
+        "${CMAKE_CURRENT_BINARY_DIR}/hyprland-toplevel-export-v1-client-protocol.h"
     )
-    add_custom_command(
-        OUTPUT ${out_code}
-        COMMAND ${WAYLAND_SCANNER} private-code ${protocol_file} ${out_code}
-        DEPENDS ${protocol_file}
-    )
-endfunction()
-
-set(VIRTUAL_POINTER_PROTOCOL "${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-virtual-pointer-unstable-v1.xml")
-wayland_generate(${VIRTUAL_POINTER_PROTOCOL}
-    "${CMAKE_CURRENT_BINARY_DIR}/wlr-virtual-pointer-unstable-v1-client-protocol.h"
-    "${CMAKE_CURRENT_BINARY_DIR}/wlr-virtual-pointer-unstable-v1-protocol.c")
-set(SCREENCOPY_PROTOCOL "${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-screencopy-unstable-v1.xml")
-wayland_generate(${SCREENCOPY_PROTOCOL}
-    "${CMAKE_CURRENT_BINARY_DIR}/wlr-screencopy-unstable-v1-client-protocol.h"
-    "${CMAKE_CURRENT_BINARY_DIR}/wlr-screencopy-unstable-v1-protocol.c")
-set(TOPLEVEL_EXPORT_PROTOCOL "${CMAKE_CURRENT_SOURCE_DIR}/protocols/hyprland-toplevel-export-v1.xml")
-wayland_generate(${TOPLEVEL_EXPORT_PROTOCOL}
-    "${CMAKE_CURRENT_BINARY_DIR}/hyprland-toplevel-export-v1-client-protocol.h"
-    "${CMAKE_CURRENT_BINARY_DIR}/hyprland-toplevel-export-v1-protocol.c")
-
-
-set(GENERATED_SOURCES
-    "${CMAKE_CURRENT_BINARY_DIR}/wlr-virtual-pointer-unstable-v1-protocol.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/wlr-virtual-pointer-unstable-v1-client-protocol.h"
-    "${CMAKE_CURRENT_BINARY_DIR}/wlr-screencopy-unstable-v1-protocol.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/wlr-screencopy-unstable-v1-client-protocol.h"
-    "${CMAKE_CURRENT_BINARY_DIR}/hyprland-toplevel-export-v1-protocol.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/hyprland-toplevel-export-v1-client-protocol.h"
-)
+else()
+    message(STATUS "Wayland support disabled (minimal X11/i3 mode)")
+    set(GENERATED_SOURCES "")
+endif()
 
 file(GLOB_RECURSE SRC_SOURCES CONFIGURE_DEPENDS "src/*.cpp")
 file(GLOB MAIN_SOURCES "main.cpp")

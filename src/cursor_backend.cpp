@@ -35,10 +35,11 @@ Vector2 CursorBackendManager::GetCursorPos(double frameTime) {
 
 void CursorBackendManager::Init() {
     m_cursorSampleTime = -1.0;
-    // Register known backends
+#ifdef HAVE_WAYLAND
     RegisterBackend(std::make_unique<HyprlandBackend>());
     RegisterBackend(std::make_unique<NiriBackend>());
     RegisterBackend(std::make_unique<WlrootsBackend>());
+#endif
     RegisterBackend(std::make_unique<X11Backend>());
 
     if (const char* desktop = std::getenv("XDG_CURRENT_DESKTOP")) {
