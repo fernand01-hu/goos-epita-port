@@ -8,6 +8,7 @@
 #include <iostream>
 #include <vector>
 #include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <filesystem>
 #include <string>
@@ -1961,6 +1962,16 @@ void setup_overlay_window(GtkApplication* app) {
         assetCandidates.push_back(
             exeDir.parent_path() / CPPGOOSE_INSTALL_DATADIR / ASSET_ROOT_NAME);
 #endif
+    }
+
+    const char* xdgData = std::getenv("XDG_DATA_HOME");
+    if (xdgData && *xdgData) {
+        assetCandidates.push_back(fs::path(xdgData) / "CppGoose" / ASSET_ROOT_NAME);
+    }
+    const char* homeDir = std::getenv("HOME");
+    if (homeDir && *homeDir) {
+        assetCandidates.push_back(fs::path(homeDir) / ".local" / "share" / "CppGoose" / ASSET_ROOT_NAME);
+        assetCandidates.push_back(fs::path(homeDir) / ".config" / "desktop-goose" / ASSET_ROOT_NAME);
     }
 
     ASSET_ROOT.clear();

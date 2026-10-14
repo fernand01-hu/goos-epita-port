@@ -17,3 +17,5 @@ CppGoose
 gemini_client_test
 wlr-virtual-pointer-unstable-v1-client-protocol.h
 wlr-virtual-pointer-unstable-v1-protocol.c
+*.tar.gz
+cppgoose-portable*
