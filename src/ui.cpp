@@ -15,6 +15,11 @@
 #include "cursor_backend.h"
 #include "app_actions.h"
 #include "edge_detector.h"
+#ifdef GDK_WINDOWING_X11
+#include <gdk/x11/gdkx.h>
+#include <X11/Xlib.h>
+#include <X11/Xatom.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -119,6 +124,19 @@ static double GetEscapeHoldProgress() {
     return std::clamp(heldSeconds / ESC_KILL_HOLD_SECONDS, 0.0, 1.0);
 }
 
+static bool IsWaylandSession() {
+#ifdef GDK_WINDOWING_X11
+    if (GDK_IS_X11_DISPLAY(gdk_display_get_default())) {
+        return false;
+    }
+#endif
+#ifdef HAVE_GTK4_LAYER_SHELL
+    return gtk_layer_is_supported();
+#else
+    return false;
+#endif
+}
+
 static void EnsureEscapeHoldHud() {
     if (g_escapeHoldHudWindow || !g_uiApp) return;
 
@@ -128,13 +146,36 @@ static void EnsureEscapeHoldHud() {
     gtk_window_set_resizable(win, FALSE);
     gtk_window_set_default_size(win, 320, 64);
 
-    gtk_layer_init_for_window(win);
-    gtk_layer_set_layer(win, GTK_LAYER_SHELL_LAYER_TOP);
-    gtk_layer_set_anchor(win, GTK_LAYER_SHELL_EDGE_LEFT, 1);
-    gtk_layer_set_anchor(win, GTK_LAYER_SHELL_EDGE_RIGHT, 1);
-    gtk_layer_set_anchor(win, GTK_LAYER_SHELL_EDGE_BOTTOM, 1);
-    gtk_layer_set_keyboard_mode(win, GTK_LAYER_SHELL_KEYBOARD_MODE_NONE);
-    gtk_layer_set_margin(win, GTK_LAYER_SHELL_EDGE_BOTTOM, 20);
+    bool useLayerShell = IsWaylandSession();
+#ifdef HAVE_GTK4_LAYER_SHELL
+    if (useLayerShell) {
+        gtk_layer_init_for_window(win);
+        gtk_layer_set_layer(win, GTK_LAYER_SHELL_LAYER_TOP);
+        gtk_layer_set_anchor(win, GTK_LAYER_SHELL_EDGE_LEFT, 1);
+        gtk_layer_set_anchor(win, GTK_LAYER_SHELL_EDGE_RIGHT, 1);
+        gtk_layer_set_anchor(win, GTK_LAYER_SHELL_EDGE_BOTTOM, 1);
+        gtk_layer_set_keyboard_mode(win, GTK_LAYER_SHELL_KEYBOARD_MODE_NONE);
+        gtk_layer_set_margin(win, GTK_LAYER_SHELL_EDGE_BOTTOM, 20);
+    }
+#endif
+    if (!useLayerShell) {
+        gtk_widget_set_focusable(GTK_WIDGET(win), FALSE);
+        gtk_widget_realize(GTK_WIDGET(win));
+#ifdef GDK_WINDOWING_X11
+        GdkSurface* surf = gtk_native_get_surface(GTK_NATIVE(win));
+        if (surf && GDK_IS_X11_SURFACE(surf)) {
+            Display* dpy = gdk_x11_display_get_xdisplay(gdk_display_get_default());
+            Window xid = gdk_x11_surface_get_xid(surf);
+            XSetWindowAttributes attrs;
+            attrs.override_redirect = True;
+            XChangeWindowAttributes(dpy, xid, CWOverrideRedirect, &attrs);
+            int hudX = (g_screenWidth - 320) / 2;
+            int hudY = g_screenHeight - 64 - 20;
+            XMoveResizeWindow(dpy, xid, hudX, hudY, 320, 64);
+            XRaiseWindow(dpy, xid);
+        }
+#endif
+    }
 
     GtkWidget* outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_halign(outer, GTK_ALIGN_CENTER);
@@ -174,7 +215,7 @@ static void EnsureEscapeHoldHud() {
 
 static void UpdateEscapeHoldHud() {
     EnsureEscapeHoldHud();
-    if (!g_escapeHoldHudWindow || !g_escapeHoldHudBar) return;
+    if (!g_escapeHoldHudWindow || !GTK_IS_WIDGET(g_escapeHoldHudWindow) || !g_escapeHoldHudBar) return;
 
     const double progress = GetEscapeHoldProgress();
     if (progress <= 0.0 || g_escapeKillTriggered) {
@@ -1140,7 +1181,23 @@ gboolean on_tick(gpointer) {
     }
 
     static int tick = 0;
-    if ((++tick % 10) == 0) RefreshSelectedGooseUi();
+    tick++;
+    if ((tick % 10) == 0) RefreshSelectedGooseUi();
+#ifdef GDK_WINDOWING_X11
+    if ((tick % 30) == 0) {
+        Display* dpy = gdk_x11_display_get_xdisplay(gdk_display_get_default());
+        if (dpy) {
+            for (auto& monitor : g_monitors) {
+                if (monitor.window && GTK_IS_WINDOW(monitor.window)) {
+                    GdkSurface* s = gtk_native_get_surface(GTK_NATIVE(monitor.window));
+                    if (s && GDK_IS_X11_SURFACE(s)) {
+                        XRaiseWindow(dpy, gdk_x11_surface_get_xid(s));
+                    }
+                }
+            }
+        }
+    }
+#endif
     return G_SOURCE_CONTINUE;
 }
 
@@ -1945,16 +2002,30 @@ void setup_overlay_window(GtkApplication* app) {
 
         // Create overlay for this monitor
         GtkWindow* overlay = GTK_WINDOW(gtk_application_window_new(app));
-        gtk_layer_init_for_window(overlay);
-        gtk_layer_set_monitor(overlay, monitor);
-        gtk_layer_set_layer(overlay, GTK_LAYER_SHELL_LAYER_OVERLAY);
-        gtk_layer_set_anchor(overlay, GTK_LAYER_SHELL_EDGE_TOP, 1);
-        gtk_layer_set_anchor(overlay, GTK_LAYER_SHELL_EDGE_BOTTOM, 1);
-        gtk_layer_set_anchor(overlay, GTK_LAYER_SHELL_EDGE_LEFT, 1);
-        gtk_layer_set_anchor(overlay, GTK_LAYER_SHELL_EDGE_RIGHT, 1);
-        gtk_layer_set_keyboard_mode(overlay, GTK_LAYER_SHELL_KEYBOARD_MODE_NONE);
+        bool useLayerShell = IsWaylandSession();
+#ifdef HAVE_GTK4_LAYER_SHELL
+        if (useLayerShell) {
+            gtk_layer_init_for_window(overlay);
+            gtk_layer_set_monitor(overlay, monitor);
+            gtk_layer_set_layer(overlay, GTK_LAYER_SHELL_LAYER_OVERLAY);
+            gtk_layer_set_anchor(overlay, GTK_LAYER_SHELL_EDGE_TOP, 1);
+            gtk_layer_set_anchor(overlay, GTK_LAYER_SHELL_EDGE_BOTTOM, 1);
+            gtk_layer_set_anchor(overlay, GTK_LAYER_SHELL_EDGE_LEFT, 1);
+            gtk_layer_set_anchor(overlay, GTK_LAYER_SHELL_EDGE_RIGHT, 1);
+            gtk_layer_set_keyboard_mode(overlay, GTK_LAYER_SHELL_KEYBOARD_MODE_NONE);
+        }
+#endif
+        if (!useLayerShell) {
+            gtk_window_set_decorated(overlay, FALSE);
+            gtk_window_set_resizable(overlay, FALSE);
+            gtk_widget_set_focusable(GTK_WIDGET(overlay), FALSE);
+            gtk_window_set_default_size(overlay, mi.width, mi.height);
+        }
 
         GtkWidget* canvas = gtk_drawing_area_new();
+        if (!useLayerShell) {
+            gtk_widget_set_size_request(canvas, mi.width, mi.height);
+        }
         // Pass the MonitorInfo reference
         gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(canvas), draw_overlay, &monitorInfo, NULL);
         gtk_window_set_child(overlay, canvas);
@@ -1962,7 +2033,35 @@ void setup_overlay_window(GtkApplication* app) {
         monitorInfo.window = overlay;
         monitorInfo.canvas = canvas;
 
+        if (!useLayerShell) {
+            gtk_widget_realize(GTK_WIDGET(overlay));
+#ifdef GDK_WINDOWING_X11
+            GdkSurface* surf = gtk_native_get_surface(GTK_NATIVE(overlay));
+            if (surf && GDK_IS_X11_SURFACE(surf)) {
+                Display* dpy = gdk_x11_display_get_xdisplay(display);
+                Window xid = gdk_x11_surface_get_xid(surf);
+                XSetWindowAttributes attrs;
+                attrs.override_redirect = True;
+                XChangeWindowAttributes(dpy, xid, CWOverrideRedirect, &attrs);
+                XMoveResizeWindow(dpy, xid, mi.x, mi.y, mi.width, mi.height);
+                XRaiseWindow(dpy, xid);
+            }
+#endif
+        }
+
         gtk_window_present(overlay);
+
+        if (!useLayerShell) {
+#ifdef GDK_WINDOWING_X11
+            GdkSurface* surf = gtk_native_get_surface(GTK_NATIVE(overlay));
+            if (surf && GDK_IS_X11_SURFACE(surf)) {
+                Display* dpy = gdk_x11_display_get_xdisplay(display);
+                Window xid = gdk_x11_surface_get_xid(surf);
+                XMoveResizeWindow(dpy, xid, mi.x, mi.y, mi.width, mi.height);
+                XRaiseWindow(dpy, xid);
+            }
+#endif
+        }
     }
 
     if (!g_monitors.empty()) {
